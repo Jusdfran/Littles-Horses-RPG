@@ -1,0 +1,521 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>RPG Lorekeeper — Assistente RAG de PDFs, Criação de Livros, Dados & Fichas</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@600;700;800&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}" />
+</head>
+<body>
+    <!-- Top Header -->
+    <header class="topbar">
+        <div class="brand">
+            <span class="brand-icon">🐉</span>
+            <div>
+                <h1>RPG Lorekeeper</h1>
+                <span class="subtitle">Assistente RAG de Livros PDF, Estúdio de Criação de Livros, Dados & Fichas</span>
+            </div>
+        </div>
+
+        <nav class="nav-tabs" role="tablist">
+            <button class="nav-tab active" data-tab="tab-oracle" onclick="switchTab('tab-oracle')">
+                📜 Oráculo RAG
+            </button>
+            <button class="nav-tab" data-tab="tab-upload" onclick="switchTab('tab-upload')">
+                📤 Livros & PDFs
+            </button>
+            <button class="nav-tab" data-tab="tab-author" onclick="switchTab('tab-author')">
+                ✍️ Criação de Livros
+            </button>
+            <button class="nav-tab" data-tab="tab-dice" onclick="switchTab('tab-dice')">
+                🎲 Mesa de Dados
+            </button>
+            <button class="nav-tab" data-tab="tab-sheet" onclick="switchTab('tab-sheet')">
+                🛡️ Criador de Ficha
+            </button>
+        </nav>
+
+        <div class="topbar-controls">
+            <div class="stat-pill" title="Fragmentos extraídos dos seus PDFs/livros no ChromaDB">
+                <span>💎 Chunks:</span>
+                <strong id="chunk-count-badge">0</strong>
+                <button class="icon-btn" onclick="triggerReindex()" title="Sincronizar pasta data/ com ChromaDB">🔄</button>
+            </div>
+
+            <div class="api-key-box">
+                <span id="api-status-dot" class="status-dot offline" title="Status da GEMINI_API_KEY"></span>
+                <input
+                    type="password"
+                    id="gemini-api-key"
+                    placeholder="🔑 GEMINI_API_KEY (opcional se no .env)"
+                    autocomplete="off"
+                />
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Layout -->
+    <main class="workspace">
+        <section class="main-stage">
+            <!-- TAB 1: ORÁCULO RAG (CHAT SUSTENTADO POR PDFS) -->
+            <div id="tab-oracle" class="tab-panel active">
+                <div class="panel-header">
+                    <div>
+                        <h2>📜 Oráculo Oficial & Juiz de Regras</h2>
+                        <p>Sustentado 100% pelos livros em PDF e documentos que você enviar ou criar no sistema, com citação explícita de livro e página.</p>
+                    </div>
+                    <div class="rag-filters">
+                        <label>
+                            Categoria:
+                            <select id="rag-category">
+                                <option value="Todas">Todas as Categorias</option>
+                                <option value="books">📖 books (Manuais PDF)</option>
+                                <option value="rules">⚖️ rules (Regras)</option>
+                                <option value="lore">🏰 lore (Cenário)</option>
+                                <option value="npcs">🧙 npcs (Fichas/NPCs)</option>
+                            </select>
+                        </label>
+                        <label>
+                            Top-K:
+                            <select id="rag-topk">
+                                <option value="4">4 fragmentos</option>
+                                <option value="5" selected>5 fragmentos</option>
+                                <option value="6">6 fragmentos</option>
+                            </select>
+                        </label>
+                        <button class="btn btn-secondary btn-sm" onclick="clearChatHistory()">🗑️ Limpar</button>
+                    </div>
+                </div>
+
+                <!-- Quick Actions Bar -->
+                <div class="prompt-chips">
+                    <button class="chip" onclick="switchTab('tab-upload')">
+                        📤 + Enviar Novo Livro PDF
+                    </button>
+                    <button class="chip" onclick="switchTab('tab-author')">
+                        ✍️ + Criar Novo Livro / Suplemento
+                    </button>
+                    <button class="chip" onclick="sendQuickPrompt('Faça um resumo dos principais tópicos e regras presentes nos livros enviados até agora, citando as páginas.')">
+                        📖 Resumir Livros Enviados
+                    </button>
+                    <button class="chip" onclick="sendQuickPrompt('Quais são as regras de combate, testes ou criação de personagem descritas nos PDFs enviados?')">
+                        ⚔️ Consultar Regras dos PDFs
+                    </button>
+                </div>
+
+                <!-- Chat Stream -->
+                <div id="chat-messages" class="chat-container">
+                    <div class="chat-msg assistant">
+                        <div class="msg-avatar">🐉</div>
+                        <div class="msg-bubble">
+                            <div class="msg-role">Arquivista Oficial</div>
+                            <div class="msg-text">
+                                <p>Bem-vindo ao <strong>RPG Lorekeeper</strong>! Minha base de conhecimento inicia limpa e é sustentada exclusivamente pelos <strong>livros em PDF</strong> que você enviar na aba <strong>📤 Livros & PDFs</strong> ou criar na aba <strong>✍️ Criação de Livros</strong>.</p>
+                                <p>Assim que enviar seus manuais, pergunte qualquer regra, magia, tabela ou lore e eu responderei citando o livro e a página correspondente!</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Chat Input -->
+                <form id="chat-form" class="chat-input-bar" onsubmit="handleChatSubmit(event)">
+                    <input
+                        type="text"
+                        id="chat-input"
+                        placeholder="Pergunte sobre qualquer regra, capítulo ou página dos seus PDFs enviados..."
+                        required
+                    />
+                    <button type="submit" id="chat-submit-btn" class="btn btn-primary">
+                        ✨ Consultar Oráculo
+                    </button>
+                </form>
+            </div>
+
+            <!-- TAB 2: ENVIO E GESTÃO DE LIVROS (PDFs) -->
+            <div id="tab-upload" class="tab-panel">
+                <div class="panel-header">
+                    <div>
+                        <h2>📤 Recebimento e Biblioteca de Livros (PDF, MD, TXT)</h2>
+                        <p>Envie seus livros de regras, suplementos e aventuras em PDF. O sistema extrai o texto página por página e indexa automaticamente no ChromaDB.</p>
+                    </div>
+                    <button class="btn btn-secondary btn-sm" onclick="triggerReindex()">🔄 Reindexar Banco Vetorial</button>
+                </div>
+
+                <!-- Upload Dropzone Card -->
+                <div class="card upload-card">
+                    <h3>📥 Enviar Livros para o Compêndio</h3>
+                    <form id="upload-books-form" class="upload-form" onsubmit="handleBookUpload(event)">
+                        <div class="upload-controls-row">
+                            <div class="form-group">
+                                <label>Categoria de Destino</label>
+                                <select id="upload-category">
+                                    <option value="books" selected>📖 books (Manuais e Suplementos em PDF)</option>
+                                    <option value="rules">⚖️ rules (Regras e Tabelas)</option>
+                                    <option value="lore">🏰 lore (História, Mundos e Aventuras)</option>
+                                    <option value="npcs">🧙 npcs (Bestiário, Ameaças e NPCs)</option>
+                                </select>
+                            </div>
+                            <div class="form-group file-input-group">
+                                <label>Selecione um ou mais arquivos (`.pdf`, `.md`, `.txt`)</label>
+                                <input type="file" id="upload-files-input" accept=".pdf,.md,.txt" multiple required />
+                            </div>
+                            <button type="submit" id="upload-submit-btn" class="btn btn-primary">
+                                📤 Enviar & Indexar Páginas
+                            </button>
+                        </div>
+                        <div id="upload-feedback" class="save-feedback"></div>
+                    </form>
+                </div>
+
+                <!-- Lista de Livros Indexados -->
+                <div id="library-categories-grid" class="library-grid"></div>
+            </div>
+
+            <!-- TAB 3: ESTÚDIO DE CRIAÇÃO DE LIVROS -->
+            <div id="tab-author" class="tab-panel">
+                <div class="panel-header">
+                    <div>
+                        <h2>✍️ Estúdio de Criação de Livros & Suplementos</h2>
+                        <p>Escreva seus próprios livros de regras, aventuras ou suplementos por capítulos, use o Co-Autor IA baseado nos PDFs enviados e compile direto em <strong>PDF paginado</strong>!</p>
+                    </div>
+                    <div class="sheet-top-actions">
+                        <button class="btn btn-secondary btn-sm" onclick="addBookChapter()">➕ Adicionar Capítulo</button>
+                        <button class="btn btn-primary btn-sm" onclick="compileAndSaveBook()">📘 Compilar Livro & Indexar no RAG</button>
+                    </div>
+                </div>
+
+                <div class="card author-studio-card">
+                    <div class="book-meta-grid">
+                        <div class="form-group">
+                            <label>Título do Livro / Suplemento *</label>
+                            <input type="text" id="book-title" placeholder="Ex: Compêndio de Magias Arcanas" required />
+                        </div>
+                        <div class="form-group">
+                            <label>Autor / Sistema de RPG</label>
+                            <input type="text" id="book-author" placeholder="Ex: Mestre da Mesa | D&D / Tormenta / Ordem" value="Mestre da Mesa" />
+                        </div>
+                        <div class="form-group">
+                            <label>Pasta de Destino</label>
+                            <select id="book-category">
+                                <option value="books" selected>📖 books (Livros PDF)</option>
+                                <option value="rules">⚖️ rules (Regras)</option>
+                                <option value="lore">🏰 lore (Lore / Cenário)</option>
+                                <option value="npcs">🧙 npcs (Bestiário / NPCs)</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label>Formato de Compilação</label>
+                            <select id="book-format">
+                                <option value="pdf" selected>📕 Gerar Livro PDF Paginado (.pdf)</option>
+                                <option value="both">📚 Gerar PDF Paginado + Markdown (.pdf & .md)</option>
+                                <option value="md">📝 Apenas Markdown (.md)</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <div id="book-author-feedback" class="save-feedback" style="margin: 10px 0;"></div>
+
+                    <!-- Lista Dinâmica de Capítulos -->
+                    <div id="book-chapters-container" class="chapters-container"></div>
+                </div>
+            </div>
+
+            <!-- TAB 4: MESA DE DADOS -->
+            <div id="tab-dice" class="tab-panel">
+                <div class="panel-header">
+                    <div>
+                        <h2>🎲 Mesa de Rolagem de Dados</h2>
+                        <p>Rolador poliedro completo com suporte a Vantagem, Desvantagem, `4d6kh3` e fórmulas customizadas.</p>
+                    </div>
+                    <button class="btn btn-secondary btn-sm" onclick="clearDiceLog()">🗑️ Limpar Histórico</button>
+                </div>
+
+                <div class="dice-grid-stage">
+                    <div class="card">
+                        <h3>⚡ Dados Poliedros Rápidos</h3>
+                        <p class="muted">Clique em qualquer dado abaixo para rolar imediatamente.</p>
+                        <div class="polyhedral-buttons">
+                            <button class="die-btn d4" onclick="quickRollDie(4)">
+                                <span class="die-shape">▲</span>
+                                <strong>d4</strong>
+                            </button>
+                            <button class="die-btn d6" onclick="quickRollDie(6)">
+                                <span class="die-shape">■</span>
+                                <strong>d6</strong>
+                            </button>
+                            <button class="die-btn d8" onclick="quickRollDie(8)">
+                                <span class="die-shape">◆</span>
+                                <strong>d8</strong>
+                            </button>
+                            <button class="die-btn d10" onclick="quickRollDie(10)">
+                                <span class="die-shape">⬟</span>
+                                <strong>d10</strong>
+                            </button>
+                            <button class="die-btn d12" onclick="quickRollDie(12)">
+                                <span class="die-shape">⬢</span>
+                                <strong>d12</strong>
+                            </button>
+                            <button class="die-btn d20 highlight" onclick="quickRollDie(20)">
+                                <span class="die-shape">۞</span>
+                                <strong>d20</strong>
+                            </button>
+                            <button class="die-btn d100" onclick="quickRollDie(100)">
+                                <span class="die-shape">%</span>
+                                <strong>d100</strong>
+                            </button>
+                        </div>
+
+                        <div class="dice-builder-controls">
+                            <div class="form-group">
+                                <label>Quantidade</label>
+                                <input type="number" id="dice-qty" value="1" min="1" max="50" />
+                            </div>
+                            <div class="form-group">
+                                <label>Modificador</label>
+                                <input type="number" id="dice-mod" value="0" min="-50" max="100" />
+                            </div>
+                            <div class="form-group">
+                                <label>Modo (d20)</label>
+                                <select id="dice-mode">
+                                    <option value="normal">Normal</option>
+                                    <option value="advantage">🟢 Vantagem (2d20 Maior)</option>
+                                    <option value="disadvantage">🔴 Desvantagem (2d20 Menor)</option>
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label>Penalidade / Exaustão</label>
+                                <input type="number" id="dice-exhaustion" value="0" min="0" max="6" />
+                            </div>
+                        </div>
+
+                        <div class="custom-formula-bar">
+                            <input
+                                type="text"
+                                id="custom-dice-formula"
+                                placeholder="Fórmula livre: ex. 2d8+4, 4d6kh3, 1d20+7"
+                                value="1d20+4"
+                            />
+                            <input
+                                type="text"
+                                id="custom-dice-label"
+                                placeholder="Descrição (ex: Teste de Perícia)"
+                                value="Teste Personalizado"
+                            />
+                            <button class="btn btn-primary" onclick="rollCustomFormula()">🎲 Rolar Fórmula</button>
+                        </div>
+                    </div>
+
+                    <div class="card dice-Display-card">
+                        <h3>🎯 Resultado da Rolagem</h3>
+                        <div id="dice-hero-display" class="dice-hero-box">
+                            <div class="dice-total-number" id="dice-big-total">—</div>
+                            <div class="dice-formula-used" id="dice-big-label">Clique em um dado para rolar</div>
+                            <div class="dice-breakdown" id="dice-big-breakdown"></div>
+                            <div id="dice-house-rule-alert" class="house-rule-banner hidden"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- TAB 5: CRIADOR E GESTOR DE FICHAS -->
+            <div id="tab-sheet" class="tab-panel">
+                <div class="panel-header">
+                    <div>
+                        <h2>🛡️ Criador de Fichas de Personagem</h2>
+                        <p>Crie fichas para o sistema dos seus livros PDF, gere atributos com `4d6kh3` e teste atributos em um clique.</p>
+                    </div>
+                    <div class="sheet-top-actions">
+                        <button class="btn btn-secondary btn-sm" onclick="resetCharacterForm()">✨ Nova Ficha</button>
+                        <button class="btn btn-secondary btn-sm" onclick="rollAllAttributes4d6()">🎲 Rolar Atributos (4d6kh3)</button>
+                        <button class="btn btn-secondary btn-sm" onclick="exportCharacterJSON()">📥 Exportar JSON</button>
+                        <button class="btn btn-primary btn-sm" onclick="saveCharacterSheet()">💾 Salvar Ficha</button>
+                    </div>
+                </div>
+
+                <div class="sheet-layout">
+                    <aside class="saved-chars-panel card">
+                        <h3>👥 Fichas Criadas</h3>
+                        <p class="muted">Selecione uma ficha salva:</p>
+                        <div id="saved-characters-list" class="saved-chars-list"></div>
+                    </aside>
+
+                    <form id="character-form" class="character-sheet-form card" onsubmit="event.preventDefault(); saveCharacterSheet();">
+                        <input type="hidden" id="char-id" value="" />
+
+                        <div class="sheet-grid-header">
+                            <div class="form-group">
+                                <label>Nome do Personagem *</label>
+                                <input type="text" id="char-name" placeholder="Nome do personagem" required />
+                            </div>
+                            <div class="form-group">
+                                <label>Jogador / Tipo</label>
+                                <input type="text" id="char-player" placeholder="Jogador ou NPC" value="Jogador" />
+                            </div>
+                            <div class="form-group">
+                                <label>Raça / Origem</label>
+                                <input type="text" id="char-race" placeholder="Ex: Humano, Elfo, Anão..." value="Humano" />
+                            </div>
+                            <div class="form-group">
+                                <label>Classe / Arquétipo</label>
+                                <input type="text" id="char-class" placeholder="Ex: Guerreiro, Mago, Especialista..." value="Aventureiro" />
+                            </div>
+                            <div class="form-group">
+                                <label>Nível</label>
+                                <input type="number" id="char-level" value="1" min="1" max="20" onchange="recalcSheetDerived()" />
+                            </div>
+                            <div class="form-group">
+                                <label>Antecedente</label>
+                                <input type="text" id="char-background" placeholder="Antecedente ou Profissão" value="" />
+                            </div>
+                            <div class="form-group">
+                                <label>Alinhamento / Tendência</label>
+                                <select id="char-alignment">
+                                    <option value="Leal e Bom">Leal e Bom</option>
+                                    <option value="Neutro e Bom">Neutro e Bom</option>
+                                    <option value="Caótico e Bom">Caótico e Bom</option>
+                                    <option value="Leal e Neutro">Leal e Neutro</option>
+                                    <option value="Neutro" selected>Neutro</option>
+                                    <option value="Caótico e Neutro">Caótico e Neutro</option>
+                                    <option value="Leal e Mau">Leal e Mau</option>
+                                    <option value="Neutro e Mau">Neutro e Mau</option>
+                                    <option value="Caótico e Mau">Caótico e Mau</option>
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label>Bônus de Proficiência</label>
+                                <input type="text" id="char-proficiency" value="+2" readonly class="readonly-badge" />
+                            </div>
+                        </div>
+
+                        <h4 class="section-subtitle">⚡ Atributos Primários <span class="muted">(Clique em "🎲 Testar" para rolar 1d20 + Modificador)</span></h4>
+                        <div class="attributes-grid">
+                            <div class="attr-box">
+                                <span class="attr-label">FORÇA</span>
+                                <input type="number" id="attr-strength" value="10" min="1" max="30" oninput="recalcSheetDerived()" />
+                                <div class="attr-mod" id="mod-strength">+0</div>
+                                <button type="button" class="attr-roll-btn" onclick="rollAttributeCheck('Força', 'strength')">🎲 Testar</button>
+                            </div>
+                            <div class="attr-box">
+                                <span class="attr-label">DESTREZA</span>
+                                <input type="number" id="attr-dexterity" value="10" min="1" max="30" oninput="recalcSheetDerived()" />
+                                <div class="attr-mod" id="mod-dexterity">+0</div>
+                                <button type="button" class="attr-roll-btn" onclick="rollAttributeCheck('Destreza', 'dexterity')">🎲 Testar</button>
+                            </div>
+                            <div class="attr-box">
+                                <span class="attr-label">CONSTITUIÇÃO</span>
+                                <input type="number" id="attr-constitution" value="10" min="1" max="30" oninput="recalcSheetDerived()" />
+                                <div class="attr-mod" id="mod-constitution">+0</div>
+                                <button type="button" class="attr-roll-btn" onclick="rollAttributeCheck('Constituição', 'constitution')">🎲 Testar</button>
+                            </div>
+                            <div class="attr-box">
+                                <span class="attr-label">INTELIGÊNCIA</span>
+                                <input type="number" id="attr-intelligence" value="10" min="1" max="30" oninput="recalcSheetDerived()" />
+                                <div class="attr-mod" id="mod-intelligence">+0</div>
+                                <button type="button" class="attr-roll-btn" onclick="rollAttributeCheck('Inteligência', 'intelligence')">🎲 Testar</button>
+                            </div>
+                            <div class="attr-box">
+                                <span class="attr-label">SABEDORIA</span>
+                                <input type="number" id="attr-wisdom" value="10" min="1" max="30" oninput="recalcSheetDerived()" />
+                                <div class="attr-mod" id="mod-wisdom">+0</div>
+                                <button type="button" class="attr-roll-btn" onclick="rollAttributeCheck('Sabedoria', 'wisdom')">🎲 Testar</button>
+                            </div>
+                            <div class="attr-box">
+                                <span class="attr-label">CARISMA</span>
+                                <input type="number" id="attr-charisma" value="10" min="1" max="30" oninput="recalcSheetDerived()" />
+                                <div class="attr-mod" id="mod-charisma">+0</div>
+                                <button type="button" class="attr-roll-btn" onclick="rollAttributeCheck('Carisma', 'charisma')">🎲 Testar</button>
+                            </div>
+                        </div>
+
+                        <h4 class="section-subtitle">🛡️ Estatísticas de Combate</h4>
+                        <div class="combat-stats-grid">
+                            <div class="form-group">
+                                <label>PV Atual</label>
+                                <input type="number" id="char-hp-current" value="10" />
+                            </div>
+                            <div class="form-group">
+                                <label>PV Máximo</label>
+                                <input type="number" id="char-hp-max" value="10" />
+                            </div>
+                            <div class="form-group">
+                                <label>Defesa / CA</label>
+                                <input type="number" id="char-ac" value="10" />
+                            </div>
+                            <div class="form-group">
+                                <label>Deslocamento</label>
+                                <input type="text" id="char-speed" value="9m" />
+                            </div>
+                            <div class="form-group">
+                                <label>Penalidade / Exaustão</label>
+                                <input type="number" id="char-exhaustion" value="0" min="0" max="6" oninput="recalcSheetDerived()" />
+                            </div>
+                        </div>
+
+                        <div class="sheet-textareas-grid">
+                            <div class="form-group">
+                                <label>⚔️ Armas, Equipamentos & Inventário</label>
+                                <textarea id="char-equipment" rows="3" placeholder="Liste armas, armaduras e itens..."></textarea>
+                            </div>
+                            <div class="form-group">
+                                <label>✨ Magias, Poderes & Habilidades</label>
+                                <textarea id="char-spells" rows="3" placeholder="Liste magias, talentos e habilidades de classe..."></textarea>
+                            </div>
+                            <div class="form-group full-width">
+                                <label>📖 História & Anotações do Personagem</label>
+                                <textarea id="char-lore" rows="3" placeholder="Histórico, objetivos e conexões de campanha..."></textarea>
+                            </div>
+                        </div>
+
+                        <div class="sheet-footer-bar">
+                            <label class="checkbox-label">
+                                <input type="checkbox" id="char-sync-rag" />
+                                Também exportar ficha como documento <code>.md</code> em <code>data/npcs/</code> para consulta no Oráculo
+                            </label>
+                            <div id="sheet-save-feedback" class="save-feedback"></div>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </section>
+
+        <!-- PAINEL LATERAL DIREITO: ROLADOR RÁPIDO & HISTÓRICO -->
+        <aside class="quick-sidebar">
+            <div class="sidebar-card">
+                <div class="sidebar-header">
+                    <h3>🎲 Rolador Rápido</h3>
+                    <span id="active-char-pill" class="char-mini-pill">Mesa Virtual</span>
+                </div>
+                <div class="mini-dice-row">
+                    <button onclick="quickRollDie(4)">d4</button>
+                    <button onclick="quickRollDie(6)">d6</button>
+                    <button onclick="quickRollDie(8)">d8</button>
+                    <button onclick="quickRollDie(10)">d10</button>
+                    <button onclick="quickRollDie(12)">d12</button>
+                    <button class="d20-mini" onclick="quickRollDie(20)">d20</button>
+                    <button onclick="quickRollDie(100)">d100</button>
+                </div>
+                <div class="mini-attack-row">
+                    <button class="btn btn-secondary btn-xs" onclick="rollPreset('1d20+5', 'Teste / Ataque')">⚔️ 1d20+5</button>
+                    <button class="btn btn-secondary btn-xs" onclick="rollPreset('2d6+3', 'Dano 2d6+3')">🩸 2d6+3</button>
+                    <button class="btn btn-secondary btn-xs" onclick="rollPreset('4d6kh3', 'Atributo 4d6kh3')">⚡ 4d6kh3</button>
+                </div>
+            </div>
+
+            <div class="sidebar-card roll-log-card">
+                <div class="sidebar-header">
+                    <h3>📜 Registro de Rolagens</h3>
+                    <button class="icon-btn" onclick="clearDiceLog()" title="Limpar rolagens">🗑️</button>
+                </div>
+                <div id="dice-log-list" class="dice-log-list">
+                    <div class="empty-log">Nenhuma rolagem realizada ainda. Clique em um dado acima!</div>
+                </div>
+            </div>
+        </aside>
+    </main>
+
+    <script src="{{ url_for('static', filename='js/app.js') }}"></script>
+</body>
+</html>

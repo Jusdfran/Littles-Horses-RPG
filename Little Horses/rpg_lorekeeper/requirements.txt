@@ -1,0 +1,7 @@
+google-genai
+chromadb
+streamlit
+flask
+python-dotenv
+langchain-text-splitters
+pypdf
